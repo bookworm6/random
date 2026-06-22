@@ -1,19 +1,151 @@
-#ifndef COMPLETE_EXPONENTIAL_LEAF_SUM_TREE
-#define COMPLETE_EXPONENTIAL_LEAF_SUM_TREE
+#ifndef BOOST_RANDOM_DISCRETE_DISTRIBUTION_HPP_INCLUDED
+#define BOOST_RANDOM_DISCRETE_DISTRIBUTION_HPP_INCLUDED
 #include <vector>
 #include <limits>
-#include <random>
-#include <cassert>
-#include <iostream>
+#include <istream>
+#include <ostream>
 #include <queue>
 #include <cmath>
-#include <stdexcept>
 #include <string>
 #include <bit>
 #include <algorithm>
-#include "kary_complete_tree_base.hpp"
+#include <boost/assert.hpp>
+#include <boost/random/detail/config.hpp>
+#include <boost/random/detail/operators.hpp>
+
 
 namespace boost { namespace random{
+
+/////////////////////////
+// Underlying tree data structure
+namespace detail{
+template <class IntType = int, class Real = double, std::make_unsigned_t<IntType> fanout = 16>
+        class complete_kary_complete_tree {
+        public:
+
+        // Compute minimal complete k-ary tree size to store exactly n leaves
+        // without needing bounds checks during selection. returns the index of the first leaf and the total number of leaves
+        // Returns {total_nodes_excluding_root, leaf_start_index}
+        std::pair<IntType, IntType> minimal_tree_shape(std::make_unsigned_t<IntType> n) {
+
+            if (n == 0) return {0, 0}; // no internal nodes, no leaves
+
+            IntType k = std::countr_zero(fanout);
+            IntType max_leaf = IntType(1) << (((std::bit_width(n - 1) + k - 1) / k) * k);
+
+            IntType leaf_start = 0; //the index of the first node that can contain leaves
+            IntType level = 0; //the index of the first node in the bottom row
+
+            while (true) {
+                level = first_child_of(level);
+                if (level >= max_leaf) break;
+                leaf_start=level;
+            }
+
+            IntType total_nodes = leaf_start+n;
+            return {total_nodes, leaf_start};
+        }
+
+
+
+        static_assert((fanout & (fanout - 1)) == 0, "fanout must be power of two");
+
+        using position_type = IntType;
+
+        //constructors
+        complete_kary_complete_tree() : data_(1, Real(0)), leaf_start_(0), leaf_count_(0) {}
+
+        explicit complete_kary_complete_tree(IntType leaf_count) {
+            resize(leaf_count);
+        }
+
+        // Resize to accommodate exactly n leaves
+            void resize(IntType n) {
+                if (n == 0) {
+                    data_.assign(1, Real(0));
+                    leaf_start_ = 0;
+                    leaf_count_ = 0;
+                    return;
+                }
+
+
+                auto [total_nodes, leaf_start] = minimal_tree_shape(n);
+
+                // allocate all internal nodes + leaves (root is kept separately by the derived class)
+                data_.resize(total_nodes);
+                leaf_count_ = n;
+                leaf_start_ = leaf_start;
+            }
+
+
+
+            IntType size() const {
+                return data_.size();
+            }
+
+            Real& value_of(position_type p) {
+                BOOST_ASSERT(p < data_.size());
+
+                return data_[p];
+            }
+
+            const Real& value_of(position_type p) const {
+                BOOST_ASSERT(p < data_.size());
+                return data_[p];
+            }
+
+            // Tree navigation (-1 based indexing). root stored seperately
+        
+
+            position_type parent_of(position_type i) const {
+                BOOST_ASSERT(i > 0);
+                return (i >> log2_fanout) - 1;
+            }
+
+            position_type first_child_of(position_type i) const {
+                return (i + 1) << log2_fanout;
+            }
+
+            position_type child_index(position_type parent, IntType child_num) const {
+                return first_child_of(parent) + child_num;
+            }
+
+            bool is_leaf(position_type i) const {
+                return i >= leaf_start_;
+            }
+
+            IntType leaf_start() const {
+                return leaf_start_;
+            }
+
+            IntType leaf_count() const {
+                return leaf_count_;
+            }
+
+            std::vector<Real,boost::alignment::aligned_allocator<Real, 128> > &data() {return data_;}
+
+            const std::vector<Real,boost::alignment::aligned_allocator<Real, 128> > &data() const {return data_;}
+
+        private:
+
+
+            std::vector<Real,boost::alignment::aligned_allocator<Real, 128> > data_;
+            IntType leaf_start_;
+            IntType leaf_count_;
+            IntType max_leaf_;
+
+            static constexpr IntType log2_fanout = [] { //This is the lg(fanout) with a base of 2 
+                IntType v = fanout;
+                IntType r = 0;
+                while (v > 1) {
+                    v >>= 1;
+                    ++r;
+                }
+                return r;
+            }();
+        };}
+
+///////////////////////
 
 
 /**
@@ -42,8 +174,8 @@ public:
     /**
      * @brief standard library random number distributions separate state related to the parameters of a distribution and state related to the generation of random numbers by defining a member class param_type that holds the distribution parameters and related data structures. The distribution stores its parameter set in a param_type object. 
      */
-    class Param : protected complete_kary_complete_tree<IntType, Real, Fanout> {
-        using BaseTree = complete_kary_complete_tree<IntType, Real, Fanout>;
+    class Param : protected detail::complete_kary_complete_tree<IntType, Real, Fanout> {
+        using BaseTree = detail::complete_kary_complete_tree<IntType, Real, Fanout>;
         using PosType = typename BaseTree::position_type;
 
     public:
@@ -100,7 +232,6 @@ public:
             InputIt it = first;
             for (IntType i = leaf_start_; i < leaf_start_ + n; ++i) {
                 weightsum_of(i) = std::max(Real(*it), Real(0));
-                //std::cout << i << std::endl;
                 ++it;
             }
 
@@ -153,20 +284,21 @@ public:
         /**
          * @brief returns the minimum integer that could be generated by a dynamic_discrete_distribution using this parameter set assuming that it is not empty. This minimum will always be 0. 
          */
-        static constexpr result_type min() { return 0; }
+        static constexpr result_type min BOOST_PREVENT_MACRO_SUBSTITUTION () { return 0; }
+
 
         /**
          * @brief returns the maximum integer that could be generated by a dynamic_discrete_distribution using this parameter set assuming that it is not empty. 
          */
-        result_type max() const { return leaf_end_ == 0 ? 0 : leaf_end_ - 1; }
+        result_type max BOOST_PREVENT_MACRO_SUBSTITUTION () const { return leaf_end_ == 0 ? 0 : leaf_end_ - 1; }
 
         /**
          * @brief updates weight of int`i`  to `new_weight`. If i is not in this parameter set, the behavior is undefined. 
          */
         void update_weight(IntType i, Real new_weight) {
-            assert(new_weight >= Real(0));
-            assert(i <= leaf_end_+leaf_start_);
-            assert(i>=0);
+            BOOST_ASSERT(new_weight >= Real(0));
+            BOOST_ASSERT(i <= leaf_end_+leaf_start_);
+            BOOST_ASSERT(i>=0);
             i = leaf_start_ + i;
             Real diff = new_weight - weightsum_of(i);
             weightsum_of(i) = new_weight;
@@ -182,8 +314,8 @@ public:
          * @brief gets the weight of int `i`. If i is not in the parameter set, the behavior is undefined. 
          */
         Real get_weight(IntType i) const {
-            assert(i <= leaf_end_+leaf_start_);
-            assert(i>=0);
+            BOOST_ASSERT(i <= leaf_end_+leaf_start_);
+            BOOST_ASSERT(i>=0);
             return weightsum_of(leaf_start_ + i);
         }
 
@@ -231,7 +363,7 @@ public:
          * @brief removes the highest integer. If the parameter set is empty, this function's behavior is undefined. NOTE: in this implementation, this does not deallocate memory or decrease the depth of the underlying tree based data structure. For the purposes of asymptotic analysis, consider "N" to be the largest number of elements ever held in this parameter set. 
          */
         void pop_back() {
-            assert(leaf_end_ > 0);
+            BOOST_ASSERT(leaf_end_ > 0);
             leaf_end_--;
             update_weight(leaf_end_, Real(0));
         }
@@ -239,7 +371,7 @@ public:
         /**
          * @brief compares the weights of each element in `rhs` and `lhs` for equality.
          */
-        friend bool operator == (const Param& rhs, const Param& lhs){
+        BOOST_RANDOM_DETAIL_EQUALITY_OPERATOR(param_type, lhs, rhs){
             IntType sizer = rhs.size();
             if (sizer != lhs.size()){
                 return false;
@@ -255,40 +387,34 @@ public:
         /**
          * @brief compares the weights of each element in `rhs` and `lhs` for inequality
          */
-        friend bool operator != (const Param& rhs, const Param& lhs){
-            if (rhs==lhs){
-                return false;
-            }
-            return true;
-        }
+         BOOST_RANDOM_DETAIL_INEQUALITY_OPERATOR(param_type)
 
         /**
          * @brief Restores the parameters with data read from `stream`. The formatting flags of `stream` are unchanged. The data must have been written using a stream with the same locale, `CharT` and `Traits` template parameters, otherwise the behavior is undefined. If bad input is encountered, stream.setstate(std::ios::failbit) is called, which may throw std::ios_base::failure. the parameter set is unchanged in that case.
          */
-        template <typename CharT, typename Traits>
-        friend std::basic_istream<CharT,Traits>& operator >> (std::basic_istream<CharT,Traits>& stream, Param& dist){
-            std::basic_string<CharT> streamInput;
-            std::vector<Real> newWeights;
-            stream >> streamInput;
-            IntType startIndex = 0;
-            for (size_t i=1; i<streamInput.size();i++){
-                if (streamInput[i]==','){
-                    Real nw;
-                    try {
-                        nw = Real(std::stold(streamInput.substr(startIndex,i-startIndex)));
-                    }
-                    catch(...){
-                        stream.setstate(std::ios::failbit);
-                        return stream;
-                    }
-                    if (nw<0){
-                        stream.setstate(std::ios::failbit);
-                        return stream;
-                    }
-                    newWeights.push_back(nw);
-                    startIndex = i+1;
-                }
+         BOOST_RANDOM_DETAIL_ISTREAM_OPERATOR(stream, param_type, dist){
+           std::vector<Real> newWeights;
+            char temp;
+            Real weight;
+            stream>>temp;
+            if (temp != ' '){
+                stream.setstate(std::ios::failbit);
+                return stream;
             }
+            do{
+                if (stream>>weight){
+                    if (weight<0){
+                        stream.setstate(std::ios::failbit);
+                        return stream;
+                    }
+                    newWeights.push_back(weight);
+                    stream >> temp;
+                    if ((temp != ' ') && (temp != ',')){
+                        stream.setstate(std::ios::failbit);
+                        return stream;
+                    }
+                }
+            } while(temp!=' ');
             dist = Param(newWeights);
             return stream;
         }
@@ -297,7 +423,7 @@ public:
          * @brief Writes a textual representation of the parameters to `stream`. The formatting flags and fill character of `stream` are unchanged.
          */
         template <typename CharT, typename Traits>
-        friend std::basic_ostream<CharT,Traits>& operator <<(std::basic_ostream<CharT,Traits>& stream, const Param& dist ){
+        BOOST_RANDOM_DETAIL_OSTREAM_OPERATOR(stream, param_type, dist){
             stream<<" ";
             for (IntType i=0; i<dist.size();i++){
                 stream<<dist.get_weight(i)<<",";
@@ -368,16 +494,6 @@ public:
                     IntType new_level_index = i + 1; // destination level index
                     IntType new_start = new_starts[new_level_index];
                     
-                    // bounds check (should not happen for reasonable expansions)
-                    if (old_start + old_sz > data_.size()) {
-                        std::cout << "Reading from: " << old_start + old_sz << ", total size: " << data_.size() << std::endl;
-                        throw std::runtime_error("expand(): old level range out of bounds");
-                    }
-                    if (new_start + old_sz > new_data.size()) {
-                        std::cout << new_starts.size() << ", reading from: " << new_level_index << std::endl;
-                        std::cout << "Writing to: " << new_start <<" + " << old_sz << ", total size: " << new_data.size() << std::endl;
-                        throw std::runtime_error("expand(): new level destination out of bounds");
-                    }
 
                     std::copy_n(data_.begin() + old_start, old_sz, new_data.begin() + new_start);
                 }
@@ -428,196 +544,8 @@ public:
             return distro;
         }
 
-        // Print tree for debugging (-1-indexed)
-        void printTree(std::ostream& os = std::cout) const {
-            IntType total_nodes = BaseTree::size();
-
-            if (total_nodes == 0) {
-                os << "(empty tree)\n";
-                return;
-            }
-
-            std::queue<ptrdiff_t> q; // use signed for -1 root
-            q.push(-1); // -1 represents the root stored separately
-
-            IntType level = 0;
-
-            while (!q.empty()) {
-                IntType level_size = q.size();
-                os << "Level " << level << ": ";
-
-                for (IntType i = 0; i < level_size; ++i) {
-                    ptrdiff_t node = q.front();
-                    q.pop();
-
-                    Real w = (node == -1) ? total_weight_ : weightsum_of(static_cast<PosType>(node));
-                    os << "[" << node << "]=" << w << "  ";
-
-                    // enqueue children
-                    PosType first_child = (node + 1) * Fanout; // -1-index adjustment
-                    for (IntType c = 0; c < Fanout; ++c) {
-                        PosType child = first_child + c;
-                        if (child >= total_nodes) break;
-                        q.push(child);
-                    }
-                }
-
-                os << "\n";
-                ++level;
-            }
-        }
 
         friend class dynamic_discrete_distribution;
-        template <class IntType = int, class Real = double, std::make_unsigned_t<IntType> fanout = 16>
-        class complete_kary_complete_tree {
-        public:
-
-        // Compute minimal complete k-ary tree size to store exactly n leaves
-        // without needing bounds checks during selection. returns the index of the first leaf and the total number of leaves
-        // Returns {total_nodes_excluding_root, leaf_start_index}
-        std::pair<IntType, IntType> minimal_tree_shape(std::make_unsigned_t<IntType> n) {
-
-            if (n == 0) return {0, 0}; // no internal nodes, no leaves
-
-            IntType k = std::countr_zero(fanout);
-            IntType max_leaf = IntType(1) << (((std::bit_width(n - 1) + k - 1) / k) * k);
-
-            IntType leaf_start = 0; //the index of the first node that can contain leaves
-            IntType level = 0; //the index of the first node in the bottom row
-
-            while (true) {
-                level = first_child_of(level);
-                if (level >= max_leaf) break;
-                //leaf_start += level - leaf_start; //PERRIN TO DO -- WHY?? can't this just be leaf_start = level
-                leaf_start=level;
-            }
-
-            IntType total_nodes = leaf_start+n;
-            return {total_nodes, leaf_start};
-        }
-
-        std::pair<IntType, IntType> minimal_tree_shape_expansion(IntType n) {
-            // Returns {total_nodes_excluding_root, leaf_start_index}
-            if (n == 0) return {0, 0}; // no internal nodes, no leaves
-
-            IntType k = std::countr_zero(fanout);
-            IntType max_leaf = IntType(1) << (((std::bit_width(n - 1) + k - 1) / k) * k)+1;
-            //std::cout << "max_leaf: " << max_leaf << std::endl;
-
-            IntType leaf_start = 0;
-            IntType level = 0;
-            //IntType max_leaf = std::pow(fanout, std::ceil(std::log(n) / std::log(fanout))); //highest possible # of leaves in this tree structure;
-            while (true) {
-                level = first_child_of(level);
-                if (level >= max_leaf) break;
-                leaf_start += level - leaf_start;
-            }
-
-            IntType total_nodes = (-1*(0-leaf_start)+n);
-            return {total_nodes, leaf_start};
-        }
-
-
-
-        static_assert((fanout & (fanout - 1)) == 0, "fanout must be power of two");
-
-        using position_type = IntType;
-
-        //constructors
-        complete_kary_complete_tree() : data_(1, Real(0)), leaf_start_(0), leaf_count_(0) {}
-
-        explicit complete_kary_complete_tree(IntType leaf_count) {
-            resize(leaf_count);
-        }
-
-        // Resize to accommodate exactly n leaves
-            void resize(IntType n) {
-                if (n == 0) {
-                    data_.assign(1, Real(0));
-                    leaf_start_ = 0;
-                    leaf_count_ = 0;
-                    return;
-                }
-
-
-                auto [total_nodes, leaf_start] = minimal_tree_shape(n);
-
-                // allocate all internal nodes + leaves (root is kept separately by the derived class)
-                data_.resize(total_nodes);
-                leaf_count_ = n;
-                leaf_start_ = leaf_start;
-                //std::cout << "base tree leafstart: " << leaf_start_ << std::endl;
-            }
-
-
-
-            IntType size() const {
-                return data_.size();
-            }
-
-            Real& value_of(position_type p) {
-                if(p >= data_.size()) {
-                throw std::runtime_error("trying to access position " + std::to_string(p) + " in tree of size " + std::to_string(data_.size()));
-                }
-
-                return data_[p];
-            }
-
-            const Real& value_of(position_type p) const {
-                assert(p < data_.size());
-                return data_[p];
-            }
-
-            // Tree navigation (-1 based indexing). root stored seperately
-        
-
-            position_type parent_of(position_type i) const {
-                assert(i > 0);
-                return (i >> log2_fanout) - 1;
-            }
-
-            position_type first_child_of(position_type i) const {
-                return (i + 1) << log2_fanout;
-            }
-
-            position_type child_index(position_type parent, IntType child_num) const {
-                return first_child_of(parent) + child_num;
-            }
-
-            bool is_leaf(position_type i) const {
-                return i >= leaf_start_;
-            }
-
-            IntType leaf_start() const {
-                return leaf_start_;
-            }
-
-            IntType leaf_count() const {
-                return leaf_count_;
-            }
-
-            std::vector<Real,boost::alignment::aligned_allocator<Real, 128> > &data() {return data_;}
-
-            const std::vector<Real,boost::alignment::aligned_allocator<Real, 128> > &data() const {return data_;}
-
-        private:
-
-
-            std::vector<Real,boost::alignment::aligned_allocator<Real, 128> > data_;
-            IntType leaf_start_;
-            IntType leaf_count_;
-            IntType max_leaf_;
-
-            static constexpr IntType log2_fanout = [] { //This is the lg(fanout) with a base of 2 
-                IntType v = fanout;
-                IntType r = 0;
-                while (v > 1) {
-                    v >>= 1;
-                    ++r;
-                }
-                return r;
-            }();
-        };
     };
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -676,9 +604,9 @@ public:
     template<class URNG>
     result_type operator()(URNG& g,const Param& param) const {
         Real total = param.total_weight();
-        assert(total>0 && param.leaf_end_>0);
+        BOOST_ASSERT(total>0 && param.leaf_end_>0);
         if (total <= Real(0)) return 0;
-        Real target = std::generate_canonical<Real, Precision, URNG>(g) * total;
+        Real target = generate_canonical<Real, Precision, URNG>(g) * total;
         if (target == Real(0)) return 0;
         typename Param::PosType first_child = 0;
 
@@ -687,14 +615,11 @@ public:
 
         while (true) {  // while node is an internal
             Real cumulative = 0;
-            //std::cout << target << std::endl;
 
             bool chosen = false;
             for (IntType c = 0; c < Fanout; ++c) {
                 typename Param::PosType child = first_child + c;
-                if (child >= param.leaf_end_+param.leaf_start_) break; //PERRIN TO DO - Throw an error here? start the selection over? we should do something other than choose the Fanout=th node
-                //std::cout << "Cumulative: " << cumulative << std::endl;
-                //std::cout << child << " value: " << weightsum_of(child) << std::endl;
+                if (child >= param.leaf_end_+param.leaf_start_) break; 
                 Real w = param.weightsum_of(child);
                 if (target < cumulative + w) {
                     node = child;
@@ -720,7 +645,6 @@ public:
         }
 
         // node is now a leaf
-        //std::cout << leaf_start_<< std::endl;
         return static_cast<result_type>(node - param.leaf_start_);
     }
 
@@ -820,22 +744,21 @@ public:
     /**
      * @brief compares the parameter sets of `rhs` and `lhs` for equality
      */
-    friend bool operator == (const This& rhs, const This& lhs) {
+    BOOST_RANDOM_DETAIL_EQUALITY_OPERATOR(This, lhs, rhs){
         return (rhs.myParam == lhs.myParam);
     }
     
     /**
      * @brief compares the parameter sets of `rhs` and `lhs` for inequality
      */
-    friend bool operator != (const This& rhs, const This& lhs){
-        return (rhs.myParam != lhs.myParam);
-    }
+    BOOST_RANDOM_DETAIL_INEQUALITY_OPERATOR(This)
+    
     
     /**
      * @brief Restores the distribution parameters with data read from `stream`. The formatting flags of `stream` are unchanged. The data must have been written using a stream with the same locale, `CharT` and `Traits` template parameters, otherwise the behavior is undefined. If bad input is encountered, stream.setstate(std::ios::failbit) is called, which may throw std::ios_base::failure. `dist` is unchanged in that case.
      */
     template <typename CharT, typename Traits>
-    friend std::basic_istream<CharT,Traits>& operator >> (std::basic_istream<CharT,Traits>& stream, This& dist){
+    BOOST_RANDOM_DETAIL_ISTREAM_OPERATOR(stream, This, dist){
         return (stream>>dist.myParam);
     }
 
@@ -843,7 +766,7 @@ public:
      * @brief Writes a textual representation of the distribution parameters to `stream`. The formatting flags and fill character of `stream` are unchanged.
      */
     template <typename CharT, typename Traits>
-    friend std::basic_ostream<CharT,Traits>& operator <<(std::basic_ostream<CharT,Traits>& stream, const dynamic_discrete_distribution& dist ){
+    BOOST_RANDOM_DETAIL_OSTREAM_OPERATOR(stream, This, dist){        
         return (stream<<dist.myParam);
     }
 
@@ -853,5 +776,6 @@ private:
 };
 
 }}
+#include <boost/random/detail/enable_warnings.hpp>
 
 #endif
