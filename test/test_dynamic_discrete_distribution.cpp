@@ -281,7 +281,7 @@ BOOST_AUTO_TEST_CASE(adding_removing){
         weights[i] = rand;
         sum+=rand;
     }
-    for (int i=0;i<weights.size();i++){
+    for (size_t i=0;i<weights.size();i++){
         weights[i]=weights[i]/sum;
     }
 
@@ -302,7 +302,7 @@ BOOST_AUTO_TEST_CASE(adding_removing){
         sum-=weights[weights.size()-1];
         weights.pop_back();
     }
-    for (int i=0; i<weights.size();i++){
+    for (size_t i=0; i<weights.size();i++){
         weights[i] /=sum;
     }
     std::vector<int> newResults(weights.size());

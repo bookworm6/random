@@ -10,8 +10,12 @@
 #include <bit>
 #include <algorithm>
 #include <boost/assert.hpp>
+#include <boost/align/aligned_allocator.hpp>
 #include <boost/random/detail/config.hpp>
 #include <boost/random/detail/operators.hpp>
+#include <boost/random/detail/vector_io.hpp>
+#include <boost/random/generate_canonical.hpp>
+
 
 
 namespace boost { namespace random{
@@ -30,8 +34,8 @@ template <class IntType = int, class Real = double, std::make_unsigned_t<IntType
 
             if (n == 0) return {0, 0}; // no internal nodes, no leaves
 
-            IntType k = std::countr_zero(fanout);
-            IntType max_leaf = IntType(1) << (((std::bit_width(n - 1) + k - 1) / k) * k);
+            IntType k = boost::core::countr_zero(fanout);
+            IntType max_leaf = IntType(1) << (((boost::core::bit_width(n - 1) + k - 1) / k) * k);
 
             IntType leaf_start = 0; //the index of the first node that can contain leaves
             IntType level = 0; //the index of the first node in the bottom row
@@ -164,7 +168,7 @@ template <
 >
 class dynamic_discrete_distribution {
     static constexpr std::make_unsigned_t<IntType> unsigned_fanout = static_cast<std::make_unsigned_t<IntType>>(Fanout);
-    static_assert(Fanout>0 && std::has_single_bit(unsigned_fanout),"template parameter Fanout must be a positive power of 2");
+    static_assert(Fanout>0 && boost::core::has_single_bit(unsigned_fanout),"template parameter Fanout must be a positive power of 2");
     using This = dynamic_discrete_distribution<IntType, Real, Fanout, Precision>;
 
 public:
@@ -212,7 +216,9 @@ public:
         Param(InputIt first, InputIt last)
             : BaseTree()
         {
-            std::make_unsigned_t<IntType> n = std::distance(first, last);
+            IntType n = std::distance(first, last);
+            std::make_unsigned_t<IntType> n_unsigned = n;
+
             //n = 2;
 
             // Round up leaves to nearest full complete k-ary tree level (power of Fanout)
@@ -220,8 +226,8 @@ public:
                 max_leaf_ = Fanout;
             }
             else{
-                IntType k = std::countr_zero(unsigned_fanout);
-                max_leaf_ = IntType(1) << (((std::bit_width(n - 1) + k - 1) / k) * k);
+                IntType k = boost::core::countr_zero(unsigned_fanout);
+                max_leaf_ = IntType(1) << (((boost::core::bit_width(n_unsigned - 1) + k - 1) / k) * k);
             }
 
             leaf_start_ = BaseTree::minimal_tree_shape(n).second;
@@ -371,7 +377,7 @@ public:
         /**
          * @brief compares the weights of each element in `rhs` and `lhs` for equality.
          */
-        BOOST_RANDOM_DETAIL_EQUALITY_OPERATOR(param_type, lhs, rhs){
+        BOOST_RANDOM_DETAIL_EQUALITY_OPERATOR(Param, lhs, rhs){
             IntType sizer = rhs.size();
             if (sizer != lhs.size()){
                 return false;
@@ -387,48 +393,29 @@ public:
         /**
          * @brief compares the weights of each element in `rhs` and `lhs` for inequality
          */
-         BOOST_RANDOM_DETAIL_INEQUALITY_OPERATOR(param_type)
+         BOOST_RANDOM_DETAIL_INEQUALITY_OPERATOR(Param)
 
         /**
          * @brief Restores the parameters with data read from `stream`. The formatting flags of `stream` are unchanged. The data must have been written using a stream with the same locale, `CharT` and `Traits` template parameters, otherwise the behavior is undefined. If bad input is encountered, stream.setstate(std::ios::failbit) is called, which may throw std::ios_base::failure. the parameter set is unchanged in that case.
          */
-         BOOST_RANDOM_DETAIL_ISTREAM_OPERATOR(stream, param_type, dist){
+         BOOST_RANDOM_DETAIL_ISTREAM_OPERATOR(stream, Param, dist){
            std::vector<Real> newWeights;
-            char temp;
-            Real weight;
-            stream>>temp;
-            if (temp != ' '){
-                stream.setstate(std::ios::failbit);
-                return stream;
-            }
-            do{
-                if (stream>>weight){
-                    if (weight<0){
-                        stream.setstate(std::ios::failbit);
-                        return stream;
-                    }
-                    newWeights.push_back(weight);
-                    stream >> temp;
-                    if ((temp != ' ') && (temp != ',')){
-                        stream.setstate(std::ios::failbit);
-                        return stream;
-                    }
-                }
-            } while(temp!=' ');
+           detail::read_vector(stream, newWeights);
+           if (stream){
             dist = Param(newWeights);
+           }
+
+
             return stream;
         }
 
         /**
          * @brief Writes a textual representation of the parameters to `stream`. The formatting flags and fill character of `stream` are unchanged.
          */
-        template <typename CharT, typename Traits>
-        BOOST_RANDOM_DETAIL_OSTREAM_OPERATOR(stream, param_type, dist){
-            stream<<" ";
-            for (IntType i=0; i<dist.size();i++){
-                stream<<dist.get_weight(i)<<",";
-            }
-            stream<<" ";
+        BOOST_RANDOM_DETAIL_OSTREAM_OPERATOR(stream, Param, dist){
+            std::vector<Real> leaves(dist.BaseTree::data().begin()+dist.leaf_start_, dist.BaseTree::data().begin()+dist.leaf_start_+dist.leaf_end_ );
+            detail::print_vector(stream, leaves);
+
             return stream;
         }
 
@@ -606,7 +593,7 @@ public:
         Real total = param.total_weight();
         BOOST_ASSERT(total>0 && param.leaf_end_>0);
         if (total <= Real(0)) return 0;
-        Real target = generate_canonical<Real, Precision, URNG>(g) * total;
+        Real target = boost::random::generate_canonical<Real, Precision, URNG>(g) * total;
         if (target == Real(0)) return 0;
         typename Param::PosType first_child = 0;
 
@@ -757,7 +744,6 @@ public:
     /**
      * @brief Restores the distribution parameters with data read from `stream`. The formatting flags of `stream` are unchanged. The data must have been written using a stream with the same locale, `CharT` and `Traits` template parameters, otherwise the behavior is undefined. If bad input is encountered, stream.setstate(std::ios::failbit) is called, which may throw std::ios_base::failure. `dist` is unchanged in that case.
      */
-    template <typename CharT, typename Traits>
     BOOST_RANDOM_DETAIL_ISTREAM_OPERATOR(stream, This, dist){
         return (stream>>dist.myParam);
     }
@@ -765,7 +751,6 @@ public:
     /**
      * @brief Writes a textual representation of the distribution parameters to `stream`. The formatting flags and fill character of `stream` are unchanged.
      */
-    template <typename CharT, typename Traits>
     BOOST_RANDOM_DETAIL_OSTREAM_OPERATOR(stream, This, dist){        
         return (stream<<dist.myParam);
     }
