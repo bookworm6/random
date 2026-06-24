@@ -600,13 +600,11 @@ public:
         // Start at the top internal node (index 0)
         typename Param::PosType node = 0;
 
-        while (true) {  // while node is an internal
+        for(int i=0; i<param.num_layers-1;i++){
             Real cumulative = 0;
-
             bool chosen = false;
             for (IntType c = 0; c < Fanout; ++c) {
                 typename Param::PosType child = first_child + c;
-                if (child >= param.leaf_end_+param.leaf_start_) break; 
                 Real w = param.weightsum_of(child);
                 if (target < cumulative + w) {
                     node = child;
@@ -624,17 +622,40 @@ public:
             }
 
             first_child = param.BaseTree::first_child_of(node); // first child in array
-            if (first_child >= param.BaseTree::size()){
-                break;
-            } 
+            
+        }
+        // last iteration shaved off for extra safety checks due to the possibility of floating point errors
+        if (first_child>= param.leaf_start_+param.leaf_end_){ //floating point errors made selection move into empty part of tree at some point
+            return this->operator()(g,param); //run selection algorithm again (probability of floating point errors causing this is quite small)
+        }
+        Real cumulative = 0;
+        bool chosen = false;
+        for (IntType c = 0; (c < Fanout)&&(c+first_child<param.leaf_end_+param.leaf_start_); ++c) {
+            typename Param::PosType child = first_child + c;
+            if (child >= param.leaf_end_+param.leaf_start_) break; 
+            Real w = param.weightsum_of(child);
+            if (target < cumulative + w) {
+                node = child;
+                target -=cumulative; 
+                chosen = true;
 
-            // otherwise, node has been updated to chosen_child
+                break;
+            }
+            cumulative += w;
+        }
+        if (chosen == false){
+            node = first_child;
+            target -= cumulative;
+            target +=param.weightsum_of(first_child);
         }
 
-        // node is now a leaf
-        return static_cast<result_type>(node - param.leaf_start_);
-    }
+            // otherwise, node has been updated to chosen_child
+        
 
+        // node is now a leaf
+        return static_cast<IntType>(node - param.leaf_start_);
+    
+    }
     /**
      * @brief Generates random numbers that are distributed according to the weights in the distribution's parameter set. If it does not contain at least 1 weight, the behavior is undefined
      */
