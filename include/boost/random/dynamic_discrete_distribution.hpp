@@ -9,6 +9,7 @@
 #include <string>
 #include <bit>
 #include <algorithm>
+#include <initializer_list>
 #include <boost/assert.hpp>
 #include <boost/align/aligned_allocator.hpp>
 #include <boost/random/detail/config.hpp>
@@ -98,7 +99,7 @@ template <class IntType = int, class Real = double, std::make_unsigned_t<IntType
                 return data_[p];
             }
 
-            // Tree navigation (-1 based indexing). root stored seperately
+            // Tree navigation (-1 based indexing). root stored separately
         
 
             position_type parent_of(position_type i) const {
@@ -153,11 +154,11 @@ template <class IntType = int, class Real = double, std::make_unsigned_t<IntType
 
 
 /**
- * @brief dynamic_discrete_distribution is a highly optimized library for weighted random selection modeled after std::discrete_distribution. It selects an index where the index's probability of being selected is weighted by inputed weights. It satisfies all RandomNumberDistribution requirements except for the requirement of constant time equality comparisons between both distribution objects and parameter objects, which is not possible in discrete distributions.  
+ * @brief dynamic_discrete_distribution is a highly optimized library for weighted random selection modeled after std::discrete_distribution. It selects an index where the index's probability of being selected is weighted by inputted weights. It satisfies all RandomNumberDistribution requirements except for the requirement of constant time equality comparisons between both distribution objects and parameter objects, which is not possible in discrete distributions.  
  * * This library is designed to be used in discrete event simulation applications in which there is a set of events with different probabilities of occurring, and the simulation must choose an event to occur and update probabilities of other events accordingly. These simulations often involve many more updates than selections, but exact ratios of update to selection differ depending on the application. This library provides efficient update and selection in which the underlying tree data structure can be tuned at compile time to prioritize update over selection to varying degrees. 
  * @tparam IntType is the type of the integers returned by operator(), which is the selection function. IntType must be an unsigned integer type
  * @tparam Real is the type of the weights
- * @tparam Fanout, which must be an positive integer power of 2, controls the branching factor of the underlying complete tree datastructure and can be adjusted to change the amount that update is prioritized over selection. update_weight has a runtime of $O(log_{\text{fanout}} N)$ while selection (operator ()) has a runtime of $O( \text{fanout} * (log_{\text{fanout}} N))$ . Additionally, trees with larger fanouts use less memory. 
+ * @tparam Fanout, which must be an positive integer power of 2, controls the branching factor of the underlying complete tree data structure and can be adjusted to change the amount that update is prioritized over selection. update_weight has a runtime of $O(log_{\text{fanout}} N)$ while selection (operator ()) has a runtime of $O( \text{fanout} * (log_{\text{fanout}} N))$ . Additionally, trees with larger fanouts use less memory. 
  * @tparam Precision controls the number of bits of randomness generated during selection. 
  */
 template <
@@ -224,9 +225,11 @@ public:
             // Round up leaves to nearest full complete k-ary tree level (power of Fanout)
             if (n <= Fanout){
                 max_leaf_ = Fanout;
+                num_layers = 1;
             }
             else{
                 IntType k = boost::core::countr_zero(unsigned_fanout);
+                num_layers = (boost::core::bit_width(n_unsigned - 1) + k - 1) / k;
                 max_leaf_ = IntType(1) << (((boost::core::bit_width(n_unsigned - 1) + k - 1) / k) * k);
             }
 
@@ -503,6 +506,7 @@ public:
                     new_data[parent_idx] = sum;
                 }
                 // commit!
+                num_layers++;
                 data_.swap(new_data);
 
             }
@@ -514,6 +518,7 @@ public:
         IntType max_leaf_;
         IntType leaf_end_;   // number of leaves requested by user
         IntType leaf_start_; // index of first leaf in data_
+        IntType num_layers;
         Real total_weight_ = 0;
 
         template< class UnaryOperation >
@@ -585,13 +590,14 @@ public:
      */
     void reset() {}
 
+    
     /**
      * @brief Generates random numbers distributed according to the weights in the parameter set `param`. If it does not contain at least 1 weight, the behavior is undefined
      */
     template<class URNG>
-    result_type operator()(URNG& g,const Param& param) const {
+    IntType operator()(URNG& g,const Param& param) const {
         Real total = param.total_weight();
-        BOOST_ASSERT(total>0 && param.leaf_end_>0);
+        assert(total>0 && param.leaf_end_>0);
         if (total <= Real(0)) return 0;
         Real target = boost::random::generate_canonical<Real, Precision, URNG>(g) * total;
         if (target == Real(0)) return 0;
@@ -600,7 +606,7 @@ public:
         // Start at the top internal node (index 0)
         typename Param::PosType node = 0;
 
-        for(int i=0; i<param.num_layers-1;i++){
+        for(IntType i=0; i<param.num_layers-1;i++){
             Real cumulative = 0;
             bool chosen = false;
             for (IntType c = 0; c < Fanout; ++c) {
