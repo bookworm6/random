@@ -24,14 +24,14 @@ namespace boost { namespace random{
 /////////////////////////
 // Underlying tree data structure
 namespace detail{
-template <class IntType = int, class Real = double, std::make_unsigned_t<IntType> fanout = 16>
+template <class IntType = int, class Real = double, make_unsigned_t<IntType> fanout = 16>
         class complete_kary_complete_tree {
         public:
 
         // Compute minimal complete k-ary tree size to store exactly n leaves
         // without needing bounds checks during selection. returns the index of the first leaf and the total number of leaves
         // Returns {total_nodes_excluding_root, leaf_start_index}
-        std::pair<IntType, IntType> minimal_tree_shape(std::make_unsigned_t<IntType> n) {
+        std::pair<IntType, IntType> minimal_tree_shape(make_unsigned_t<IntType> n) {
 
             if (n == 0) return {0, 0}; // no internal nodes, no leaves
 
@@ -73,8 +73,9 @@ template <class IntType = int, class Real = double, std::make_unsigned_t<IntType
                     return;
                 }
 
-
-                auto [total_nodes, leaf_start] = minimal_tree_shape(n);
+                auto newTreeShape = minimal_tree_shape(n);
+                IntType total_nodes = newTreeShape.first;
+                IntType leaf_start = newTreeShape.second;
 
                 // allocate all internal nodes + leaves (root is kept separately by the derived class)
                 data_.resize(total_nodes);
@@ -168,7 +169,7 @@ template <
     IntType Precision = std::numeric_limits<Real>::digits
 >
 class dynamic_discrete_distribution {
-    static constexpr std::make_unsigned_t<IntType> unsigned_fanout = static_cast<std::make_unsigned_t<IntType>>(Fanout);
+    static constexpr make_unsigned_t<IntType> unsigned_fanout = static_cast<make_unsigned_t<IntType>>(Fanout);
     static_assert(Fanout>0 && boost::core::has_single_bit(unsigned_fanout),"template parameter Fanout must be a positive power of 2");
     using This = dynamic_discrete_distribution<IntType, Real, Fanout, Precision>;
 
@@ -218,7 +219,7 @@ public:
             : BaseTree()
         {
             IntType n = std::distance(first, last);
-            std::make_unsigned_t<IntType> n_unsigned = n;
+            make_unsigned_t<IntType> n_unsigned = n;
 
             //n = 2;
 
@@ -435,10 +436,15 @@ public:
             if (new_leaf_count > max_leaf_) {
                 max_leaf_ *= Fanout; 
                 // old shape
-                auto [old_total_nodes, old_leaf_start] = BaseTree::minimal_tree_shape(leaf_end_); 
+                auto oldShape = BaseTree::minimal_tree_shape(leaf_end_);
+                IntType old_total_nodes = oldShape.first;
+                IntType old_leaf_start = oldShape.second;
 
                 // new shape
-                auto [new_total_nodes, new_leaf_start] = BaseTree::minimal_tree_shape(new_leaf_count);
+                auto newShape = BaseTree::minimal_tree_shape(new_leaf_count);
+                IntType new_total_nodes = newShape.first;
+                IntType new_leaf_start = newShape.second;
+
                 leaf_start_ = new_leaf_start;
 
                 std::vector<IntType> old_starts;
