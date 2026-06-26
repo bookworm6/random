@@ -1,5 +1,5 @@
-#ifndef BOOST_RANDOM_DISCRETE_DISTRIBUTION_HPP_INCLUDED
-#define BOOST_RANDOM_DISCRETE_DISTRIBUTION_HPP_INCLUDED
+#ifndef BOOST_RANDOM_DYNAMIC_DISCRETE_DISTRIBUTION_HPP_INCLUDED
+#define BOOST_RANDOM_DYNAMIC_DISCRETE_DISTRIBUTION_HPP_INCLUDED
 #include <vector>
 #include <limits>
 #include <istream>
@@ -24,22 +24,26 @@ namespace boost { namespace random{
 /////////////////////////
 // Underlying tree data structure
 namespace detail{
-template <class IntType = int, class Real = double, std::make_unsigned_t<IntType> fanout = 16>
-        class complete_kary_complete_tree {
+template <class literal_IntType, class Real = double, int Fanout = 16>
+    class complete_kary_complete_tree {
+        static constexpr typename std::make_unsigned<literal_IntType>::type unsigned_fanout = Fanout;
+
+
         public:
 
         // Compute minimal complete k-ary tree size to store exactly n leaves
         // without needing bounds checks during selection. returns the index of the first leaf and the total number of leaves
         // Returns {total_nodes_excluding_root, leaf_start_index}
-        std::pair<IntType, IntType> minimal_tree_shape(std::make_unsigned_t<IntType> n) {
+        std::pair<literal_IntType, literal_IntType> minimal_tree_shape(literal_IntType n) {
 
             if (n == 0) return {0, 0}; // no internal nodes, no leaves
 
-            IntType k = boost::core::countr_zero(fanout);
-            IntType max_leaf = IntType(1) << (((boost::core::bit_width(n - 1) + k - 1) / k) * k);
+            literal_IntType k = boost::core::countr_zero(unsigned_fanout);
+            typename std::make_unsigned<literal_IntType>::type unsigned_n = static_cast<typename std::make_unsigned<literal_IntType>::type>(n);
+            literal_IntType max_leaf = literal_IntType(1) << (((boost::core::bit_width(unsigned_n - 1) + k - 1) / k) * k);
 
-            IntType leaf_start = 0; //the index of the first node that can contain leaves
-            IntType level = 0; //the index of the first node in the bottom row
+            literal_IntType leaf_start = 0; //the index of the first node that can contain leaves
+            literal_IntType level = 0; //the index of the first node in the bottom row
 
             while (true) {
                 level = first_child_of(level);
@@ -47,25 +51,25 @@ template <class IntType = int, class Real = double, std::make_unsigned_t<IntType
                 leaf_start=level;
             }
 
-            IntType total_nodes = leaf_start+n;
+            literal_IntType total_nodes = leaf_start+n;
             return {total_nodes, leaf_start};
         }
 
 
 
-        static_assert((fanout & (fanout - 1)) == 0, "fanout must be power of two");
+        static_assert((Fanout & (Fanout - 1)) == 0, "fanout must be power of two");
 
-        using position_type = IntType;
+        using position_type = literal_IntType;
 
         //constructors
         complete_kary_complete_tree() : data_(1, Real(0)), leaf_start_(0), leaf_count_(0) {}
 
-        explicit complete_kary_complete_tree(IntType leaf_count) {
+        explicit complete_kary_complete_tree(literal_IntType leaf_count) {
             resize(leaf_count);
         }
 
         // Resize to accommodate exactly n leaves
-            void resize(IntType n) {
+            void resize(literal_IntType n) {
                 if (n == 0) {
                     data_.assign(1, Real(0));
                     leaf_start_ = 0;
@@ -84,7 +88,7 @@ template <class IntType = int, class Real = double, std::make_unsigned_t<IntType
 
 
 
-            IntType size() const {
+            literal_IntType size() const {
                 return data_.size();
             }
 
@@ -111,7 +115,7 @@ template <class IntType = int, class Real = double, std::make_unsigned_t<IntType
                 return (i + 1) << log2_fanout;
             }
 
-            position_type child_index(position_type parent, IntType child_num) const {
+            position_type child_index(position_type parent, literal_IntType child_num) const {
                 return first_child_of(parent) + child_num;
             }
 
@@ -119,11 +123,11 @@ template <class IntType = int, class Real = double, std::make_unsigned_t<IntType
                 return i >= leaf_start_;
             }
 
-            IntType leaf_start() const {
+            literal_IntType leaf_start() const {
                 return leaf_start_;
             }
 
-            IntType leaf_count() const {
+            literal_IntType leaf_count() const {
                 return leaf_count_;
             }
 
@@ -132,16 +136,17 @@ template <class IntType = int, class Real = double, std::make_unsigned_t<IntType
             const std::vector<Real,boost::alignment::aligned_allocator<Real, 128> > &data() const {return data_;}
 
         private:
-
-
             std::vector<Real,boost::alignment::aligned_allocator<Real, 128> > data_;
-            IntType leaf_start_;
-            IntType leaf_count_;
-            IntType max_leaf_;
+            literal_IntType leaf_start_;
+            literal_IntType leaf_count_;
+            literal_IntType max_leaf_;
+            static constexpr literal_IntType fanout = Fanout; 
 
-            static constexpr IntType log2_fanout = [] { //This is the lg(fanout) with a base of 2 
-                IntType v = fanout;
-                IntType r = 0;
+
+
+            static constexpr literal_IntType log2_fanout = [] { //This is the lg(fanout) with a base of 2 
+                literal_IntType v = fanout;
+                literal_IntType r = 0;
                 while (v > 1) {
                     v >>= 1;
                     ++r;
@@ -164,13 +169,17 @@ template <class IntType = int, class Real = double, std::make_unsigned_t<IntType
 template <
     class IntType = int,
     class Real = double,
-    IntType Fanout = 16,
-    IntType Precision = std::numeric_limits<Real>::digits
+    int Fanout = 16,
+    size_t Precision = std::numeric_limits<Real>::digits
 >
 class dynamic_discrete_distribution {
-    static constexpr std::make_unsigned_t<IntType> unsigned_fanout = static_cast<std::make_unsigned_t<IntType>>(Fanout);
+    //This protects against non literal IntType types (necessary because of the boost::multiprecision::cpp_int types). indexes can't be larger than size_t anyway, so we just use size_t. We use this in the place of IntType for internal work, and cast to IntType before returning
+    using literal_IntType = typename std::conditional<std::is_trivially_destructible<IntType>::value && std::is_constructible<IntType>::value,IntType,size_t>::type;
+
+    static constexpr typename std::make_unsigned<literal_IntType>::type unsigned_fanout = Fanout;
     static_assert(Fanout>0 && boost::core::has_single_bit(unsigned_fanout),"template parameter Fanout must be a positive power of 2");
     using This = dynamic_discrete_distribution<IntType, Real, Fanout, Precision>;
+
 
 public:
     using input_type = Real;  
@@ -179,8 +188,8 @@ public:
     /**
      * @brief standard library random number distributions separate state related to the parameters of a distribution and state related to the generation of random numbers by defining a member class param_type that holds the distribution parameters and related data structures. The distribution stores its parameter set in a param_type object. 
      */
-    class Param : protected detail::complete_kary_complete_tree<IntType, Real, Fanout> {
-        using BaseTree = detail::complete_kary_complete_tree<IntType, Real, Fanout>;
+    class Param : protected detail::complete_kary_complete_tree<literal_IntType, Real, Fanout> {
+        using BaseTree = detail::complete_kary_complete_tree<literal_IntType, Real, Fanout>;
         using PosType = typename BaseTree::position_type;
 
     public:
@@ -217,29 +226,32 @@ public:
         Param(InputIt first, InputIt last)
             : BaseTree()
         {
-            IntType n = std::distance(first, last);
-            std::make_unsigned_t<IntType> n_unsigned = n;
+            std::cout<<"constructor called"<<std::endl;
+            size_t distance = std::distance(first, last);
+            literal_IntType n = distance;
+            typename std::make_unsigned<literal_IntType>::type n_unsigned = n;
 
             //n = 2;
 
-            // Round up leaves to nearest full complete k-ary tree level (power of Fanout)
-            if (n <= Fanout){
-                max_leaf_ = Fanout;
+            // Round up leaves to nearest full complete k-ary tree level (power of fanout)
+            if (n <= fanout){
+                max_leaf_ = fanout;
                 num_layers = 1;
             }
             else{
-                IntType k = boost::core::countr_zero(unsigned_fanout);
+                literal_IntType k = boost::core::countr_zero(unsigned_fanout);
                 num_layers = (boost::core::bit_width(n_unsigned - 1) + k - 1) / k;
-                max_leaf_ = IntType(1) << (((boost::core::bit_width(n_unsigned - 1) + k - 1) / k) * k);
+                max_leaf_ = literal_IntType(1) << (((boost::core::bit_width(n_unsigned - 1) + k - 1) / k) * k);
             }
 
             leaf_start_ = BaseTree::minimal_tree_shape(n).second;
             BaseTree::resize(n);
             leaf_end_ = n;
 
+
             // Copy weights to leaves, pad with zeros
             InputIt it = first;
-            for (IntType i = leaf_start_; i < leaf_start_ + n; ++i) {
+            for (literal_IntType i = leaf_start_; i < leaf_start_ + n; ++i) {
                 weightsum_of(i) = std::max(Real(*it), Real(0));
                 ++it;
             }
@@ -247,8 +259,8 @@ public:
             // Build sums bottom-up from leaves to root (excluding root)
             for (ptrdiff_t i = leaf_start_ - 1; i >= 0; --i) {
                 Real sum = 0;
-                PosType first_child = (i + 1) * Fanout; // -1-index adjustment
-                for (IntType c = 0; c < Fanout; ++c) {
+                PosType first_child = (i + 1) * fanout; // -1-index adjustment
+                for (literal_IntType c = 0; c < fanout; ++c) {
                     PosType child = first_child + c;
                     if (child >= leaf_start_+n) break;
                     sum += weightsum_of(child);
@@ -258,16 +270,16 @@ public:
 
             // Compute root separately
             Real sum = 0;
-            PosType first_child = 0 * Fanout; // root's first child in array
+            PosType first_child = 0 * fanout; // root's first child in array
             if (leaf_start_ == 0){
-                for (IntType c = 0; c < leaf_end_; ++c) {
+                for (literal_IntType c = 0; c < leaf_end_; ++c) {
                     PosType child = first_child + c;
                     if (child >= max_leaf_) break;
                     sum += weightsum_of(child);
                 }
             }
             else{
-                for (IntType c = 0; c < Fanout; ++c) {
+                for (literal_IntType c = 0; c < fanout; ++c) {
                     PosType child = first_child + c;
                     if (child >= max_leaf_) break;
                     sum += weightsum_of(child);
@@ -284,7 +296,7 @@ public:
             Real total = total_weight();
             if (total <= Real(0)) return probs;
 
-            for (IntType i = 0; i < leaf_end_; ++i) {
+            for (literal_IntType i = 0; i < leaf_end_; ++i) {
                 probs[i] = weightsum_of(leaf_start_ + i) / total;
             }
             return probs;
@@ -305,17 +317,20 @@ public:
          * @brief updates weight of int`i`  to `new_weight`. If i is not in this parameter set, the behavior is undefined. 
          */
         void update_weight(IntType i, Real new_weight) {
+            literal_IntType i_literal = i;
             BOOST_ASSERT(new_weight >= Real(0));
-            BOOST_ASSERT(i <= leaf_end_+leaf_start_);
-            BOOST_ASSERT(i>=0);
-            i = leaf_start_ + i;
-            Real diff = new_weight - weightsum_of(i);
-            weightsum_of(i) = new_weight;
+            BOOST_ASSERT(i_literal <= leaf_end_);
+            BOOST_ASSERT(i_literal>=0);
+            i_literal = leaf_start_ + i_literal;
+            Real diff = new_weight - weightsum_of(i_literal);
+            weightsum_of(i_literal) = new_weight;
             total_weight_ += diff;
 
-            while (i >=Fanout) {                
-                i = BaseTree::parent_of(i);
-                weightsum_of(i) += diff;
+
+            while (i_literal >=fanout) {                
+                i_literal = BaseTree::parent_of(i_literal);
+
+                weightsum_of(i_literal) += diff;
             }
         }
 
@@ -323,9 +338,7 @@ public:
          * @brief gets the weight of int `i`. If i is not in the parameter set, the behavior is undefined. 
          */
         Real get_weight(IntType i) const {
-            BOOST_ASSERT(i <= leaf_end_+leaf_start_);
-            BOOST_ASSERT(i>=0);
-            return weightsum_of(leaf_start_ + i);
+            return get_weight_literal(i); 
         }
 
         /**
@@ -381,17 +394,57 @@ public:
          * @brief compares the weights of each element in `rhs` and `lhs` for equality.
          */
         BOOST_RANDOM_DETAIL_EQUALITY_OPERATOR(Param, lhs, rhs){
-            IntType sizer = rhs.size();
-            if (sizer != lhs.size()){
+            literal_IntType sizer = rhs.literal_size();
+            if (sizer != lhs.literal_size()){
                 return false;
             }
-            for (IntType i=0; i<sizer; i++){
-                if (rhs.get_weight(i)!=lhs.get_weight(i)){
+            for (literal_IntType i=0; i<sizer; i++){
+                if (rhs.get_weight_literal(i)!=lhs.get_weight_literal(i)){
                     return false;
                 }
             }
             return true;
         }
+
+//         //PERIN TODO - DELETE METHOD
+//         // Print tree for debugging (-1-indexed)
+//   void printTree(std::ostream& os = std::cout) const {
+//     IntType total_nodes = BaseTree::size();
+
+//     if (total_nodes == 0) {
+//         os << "(empty tree)\n";
+//         return;
+//     }
+
+//     std::queue<ptrdiff_t> q; // use signed for -1 root
+//     q.push(-1); // -1 represents the root stored separately
+
+//     IntType level = 0;
+
+//     while (!q.empty()) {
+//         IntType level_size = q.size();
+//         os << "Level " << level << ": ";
+
+//         for (IntType i = 0; i < level_size; ++i) {
+//             ptrdiff_t node = q.front();
+//             q.pop();
+
+//             Real w = (node == -1) ? total_weight_ : weightsum_of(static_cast<PosType>(node));
+//             os << "[" << node << "]=" << w << "  ";
+
+//             // enqueue children
+//             PosType first_child = (node + 1) * fanout; // -1-index adjustment
+//             for (IntType c = 0; c < fanout; ++c) {
+//                 PosType child = first_child + c;
+//                 if (child >= total_nodes) break;
+//                 q.push(child);
+//             }
+//         }
+
+//         os << "\n";
+//         ++level;
+//     }
+//   }
 
         /**
          * @brief compares the weights of each element in `rhs` and `lhs` for inequality
@@ -423,17 +476,29 @@ public:
         }
 
     private:
+        //size for internal use, involving fewer casts.
+        literal_IntType literal_size()const{
+            return leaf_end_;
+        }
+
+        //get_weight for internal use
+        Real get_weight_literal(literal_IntType i) const {
+            BOOST_ASSERT(i <= leaf_end_+leaf_start_);
+            BOOST_ASSERT(i>=0);
+            return weightsum_of(leaf_start_ + i);
+        }
+
         Real& weightsum_of(PosType p) { return BaseTree::value_of(p); }
         const Real& weightsum_of(PosType p) const { return BaseTree::value_of(p); }
         
         // Expand from current leaf_count_ to new_leaf_count (must be larger), structurally, without recomputing
         // new expand: argument is NEW_LEAF_COUNT (number of leaves you want after expansion)
-        void expand(IntType new_leaf_count) {
+        void expand(literal_IntType new_leaf_count) {
             if (new_leaf_count <= leaf_end_) return; // nothing to do
             auto &data_ = BaseTree::data();
-            IntType new_leaf_start = leaf_start_;
+            literal_IntType new_leaf_start = leaf_start_;
             if (new_leaf_count > max_leaf_) {
-                max_leaf_ *= Fanout; 
+                max_leaf_ *= fanout; 
                 // old shape
                 auto [old_total_nodes, old_leaf_start] = BaseTree::minimal_tree_shape(leaf_end_); 
 
@@ -441,20 +506,20 @@ public:
                 auto [new_total_nodes, new_leaf_start] = BaseTree::minimal_tree_shape(new_leaf_count);
                 leaf_start_ = new_leaf_start;
 
-                std::vector<IntType> old_starts;
-                std::vector<IntType> old_levels;
+                std::vector<literal_IntType> old_starts;
+                std::vector<literal_IntType> old_levels;
 
-                std::vector<IntType> new_starts;
-                std::vector<IntType> new_levels;
+                std::vector<literal_IntType> new_starts;
+                std::vector<literal_IntType> new_levels;
 
-                IntType position = 0;
-                IntType sum = 0;
+                literal_IntType position = 0;
+                literal_IntType sum = 0;
 
                 // Creating the level lengths and level starts for the old size
                 while (true) {
                     position = BaseTree::first_child_of(position);
                     old_starts.push_back(sum);
-                    IntType level = position - sum;
+                    literal_IntType level = position - sum;
                     sum += level;
                     old_levels.push_back(level);
                     if (position >= old_total_nodes) break;
@@ -466,7 +531,7 @@ public:
                 while (true) {
                     position = BaseTree::first_child_of(position);
                     new_starts.push_back(sum);
-                    IntType level = position - sum;
+                    literal_IntType level = position - sum;
                     sum += level;
                     new_levels.push_back(level);
                     if (position >= new_total_nodes) break;
@@ -478,11 +543,11 @@ public:
                 // copy each old level block into the next-deeper level of the new layout.
                 // old level i -> new level (i+1). That packs the old block contiguously at the start
                 // of the larger new level (the remainder stays zero).
-                for (IntType i = 0; i < old_levels.size(); ++i) {
-                    IntType old_start = old_starts[i];
-                    IntType old_sz    = old_levels[i];
-                    IntType new_level_index = i + 1; // destination level index
-                    IntType new_start = new_starts[new_level_index];
+                for (literal_IntType i = 0; i < old_levels.size(); ++i) {
+                    literal_IntType old_start = old_starts[i];
+                    literal_IntType old_sz    = old_levels[i];
+                    literal_IntType new_level_index = i + 1; // destination level index
+                    literal_IntType new_start = new_starts[new_level_index];
                     
 
                     std::copy_n(data_.begin() + old_start, old_sz, new_data.begin() + new_start);
@@ -491,15 +556,15 @@ public:
                 // recompute only the new top internal layer (level 0) from its children (level 1)
                 // top-level nodes occupy global indices new_starts[0] .. new_starts[0]+new_levels[0]-1
                 // their first child indices can be computed with first_child_of(parent_index)
-                IntType top_count = new_levels[0];
-                IntType top_start = new_starts[0];   // usually 0
-                for (IntType j = 0; j < top_count; ++j) {
-                    IntType parent_idx = top_start + j;
+                literal_IntType top_count = new_levels[0];
+                literal_IntType top_start = new_starts[0];   // usually 0
+                for (literal_IntType j = 0; j < top_count; ++j) {
+                    literal_IntType parent_idx = top_start + j;
                     // first child in global indexing:
-                    IntType first_child = BaseTree::first_child_of(parent_idx);
+                    literal_IntType first_child = BaseTree::first_child_of(parent_idx);
                     Real sum = Real(0);
-                    for (IntType c = 0; c < Fanout; ++c) {
-                        IntType child = first_child + c;
+                    for (literal_IntType c = 0; c < fanout; ++c) {
+                        literal_IntType child = first_child + c;
                         if (child >= new_total_nodes) break;
                         sum += new_data[child];
                     }
@@ -515,10 +580,10 @@ public:
             }
         }
 
-        IntType max_leaf_;
-        IntType leaf_end_;   // number of leaves requested by user
-        IntType leaf_start_; // index of first leaf in data_
-        IntType num_layers;
+        literal_IntType max_leaf_;
+        literal_IntType leaf_end_;   // number of leaves requested by user
+        typename std::make_signed<literal_IntType>::type leaf_start_; // index of first leaf in data_
+        literal_IntType num_layers;
         Real total_weight_ = 0;
 
         template< class UnaryOperation >
@@ -529,7 +594,7 @@ public:
             }
             else{
                 double delta = (xmax - xmin)/count;
-                for (size_t i=0; i<count;i++){
+                for (IntType i=0; i<count;i++){
                     distro.push_back(unary_op(xmin + delta * (i+0.5)));
                 }
             }
@@ -606,10 +671,10 @@ public:
         // Start at the top internal node (index 0)
         typename Param::PosType node = 0;
 
-        for(IntType i=0; i<param.num_layers-1;i++){
+        for(literal_IntType i=0; i<param.num_layers-1;i++){
             Real cumulative = 0;
             bool chosen = false;
-            for (IntType c = 0; c < Fanout; ++c) {
+            for (literal_IntType c = 0; c < fanout; ++c) {
                 typename Param::PosType child = first_child + c;
                 Real w = param.weightsum_of(child);
                 if (target < cumulative + w) {
@@ -636,7 +701,7 @@ public:
         }
         Real cumulative = 0;
         bool chosen = false;
-        for (IntType c = 0; (c < Fanout)&&(c+first_child<param.leaf_end_+param.leaf_start_); ++c) {
+        for (literal_IntType c = 0; (c < fanout)&&(c+first_child<param.leaf_end_+param.leaf_start_); ++c) {
             typename Param::PosType child = first_child + c;
             if (child >= param.leaf_end_+param.leaf_start_) break; 
             Real w = param.weightsum_of(child);
@@ -712,7 +777,7 @@ public:
      * @brief gets the weight of int `i` in the distribution's parameter set. If i is not in the parameter set, the behavior is undefined. 
      */
     Real get_weight(IntType i) const {
-        return myParam.get_weight(i);
+        return myParam.get_weight_literal(i);
     }
 
     /**
@@ -784,6 +849,7 @@ public:
 
 private:
     Param myParam;
+    static constexpr literal_IntType fanout = Fanout; 
 
 };
 
