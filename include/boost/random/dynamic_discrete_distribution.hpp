@@ -226,7 +226,6 @@ public:
         Param(InputIt first, InputIt last)
             : BaseTree()
         {
-            std::cout<<"constructor called"<<std::endl;
             size_t distance = std::distance(first, last);
             literal_IntType n = distance;
             typename std::make_unsigned<literal_IntType>::type n_unsigned = n;
