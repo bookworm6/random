@@ -7,7 +7,6 @@
 #include <queue>
 #include <cmath>
 #include <string>
-#include <bit>
 #include <algorithm>
 #include <initializer_list>
 #include <boost/assert.hpp>
@@ -24,9 +23,9 @@ namespace boost { namespace random{
 /////////////////////////
 // Underlying tree data structure
 namespace detail{
-template <class literal_IntType, class Real = double, int Fanout = 16>
+template <class LiteralIntType, class Real = double, int Fanout = 16>
     class complete_kary_complete_tree {
-        static constexpr typename std::make_unsigned<literal_IntType>::type unsigned_fanout = Fanout;
+        static constexpr typename std::make_unsigned<LiteralIntType>::type unsigned_fanout = Fanout;
 
 
         public:
@@ -34,16 +33,16 @@ template <class literal_IntType, class Real = double, int Fanout = 16>
         // Compute minimal complete k-ary tree size to store exactly n leaves
         // without needing bounds checks during selection. returns the index of the first leaf and the total number of leaves
         // Returns {total_nodes_excluding_root, leaf_start_index}
-        std::pair<literal_IntType, literal_IntType> minimal_tree_shape(literal_IntType n) {
+        std::pair<LiteralIntType, LiteralIntType> minimal_tree_shape(LiteralIntType n) {
 
             if (n == 0) return {0, 0}; // no internal nodes, no leaves
 
-            literal_IntType k = boost::core::countr_zero(unsigned_fanout);
-            typename std::make_unsigned<literal_IntType>::type unsigned_n = static_cast<typename std::make_unsigned<literal_IntType>::type>(n);
-            literal_IntType max_leaf = literal_IntType(1) << (((boost::core::bit_width(unsigned_n - 1) + k - 1) / k) * k);
+            LiteralIntType k = boost::core::countr_zero(unsigned_fanout);
+            typename std::make_unsigned<LiteralIntType>::type unsigned_n = static_cast<typename std::make_unsigned<LiteralIntType>::type>(n);
+            LiteralIntType max_leaf = LiteralIntType(1) << (((boost::core::bit_width(unsigned_n - 1) + k - 1) / k) * k);
 
-            literal_IntType leaf_start = 0; //the index of the first node that can contain leaves
-            literal_IntType level = 0; //the index of the first node in the bottom row
+            LiteralIntType leaf_start = 0; //the index of the first node that can contain leaves
+            LiteralIntType level = 0; //the index of the first node in the bottom row
 
             while (true) {
                 level = first_child_of(level);
@@ -51,7 +50,7 @@ template <class literal_IntType, class Real = double, int Fanout = 16>
                 leaf_start=level;
             }
 
-            literal_IntType total_nodes = leaf_start+n;
+            LiteralIntType total_nodes = leaf_start+n;
             return {total_nodes, leaf_start};
         }
 
@@ -59,17 +58,17 @@ template <class literal_IntType, class Real = double, int Fanout = 16>
 
         static_assert((Fanout & (Fanout - 1)) == 0, "fanout must be power of two");
 
-        using position_type = literal_IntType;
+        using position_type = LiteralIntType;
 
         //constructors
         complete_kary_complete_tree() : data_(1, Real(0)), leaf_start_(0), leaf_count_(0) {}
 
-        explicit complete_kary_complete_tree(literal_IntType leaf_count) {
+        explicit complete_kary_complete_tree(LiteralIntType leaf_count) {
             resize(leaf_count);
         }
 
         // Resize to accommodate exactly n leaves
-            void resize(literal_IntType n) {
+            void resize(LiteralIntType n) {
                 if (n == 0) {
                     data_.assign(1, Real(0));
                     leaf_start_ = 0;
@@ -77,18 +76,17 @@ template <class literal_IntType, class Real = double, int Fanout = 16>
                     return;
                 }
 
-
-                auto [total_nodes, leaf_start] = minimal_tree_shape(n);
-
+                 std::pair<LiteralIntType, LiteralIntType> treeshape = minimal_tree_shape(n);
+                 LiteralIntType total_nodes = treeshape.first;
                 // allocate all internal nodes + leaves (root is kept separately by the derived class)
                 data_.resize(total_nodes);
                 leaf_count_ = n;
-                leaf_start_ = leaf_start;
+                leaf_start_ = treeshape.second;
             }
 
 
 
-            literal_IntType size() const {
+            LiteralIntType size() const {
                 return data_.size();
             }
 
@@ -115,7 +113,7 @@ template <class literal_IntType, class Real = double, int Fanout = 16>
                 return (i + 1) << log2_fanout;
             }
 
-            position_type child_index(position_type parent, literal_IntType child_num) const {
+            position_type child_index(position_type parent, LiteralIntType child_num) const {
                 return first_child_of(parent) + child_num;
             }
 
@@ -123,11 +121,11 @@ template <class literal_IntType, class Real = double, int Fanout = 16>
                 return i >= leaf_start_;
             }
 
-            literal_IntType leaf_start() const {
+            LiteralIntType leaf_start() const {
                 return leaf_start_;
             }
 
-            literal_IntType leaf_count() const {
+            LiteralIntType leaf_count() const {
                 return leaf_count_;
             }
 
@@ -137,22 +135,14 @@ template <class literal_IntType, class Real = double, int Fanout = 16>
 
         private:
             std::vector<Real,boost::alignment::aligned_allocator<Real, 128> > data_;
-            literal_IntType leaf_start_;
-            literal_IntType leaf_count_;
-            literal_IntType max_leaf_;
-            static constexpr literal_IntType fanout = Fanout; 
+            LiteralIntType leaf_start_;
+            LiteralIntType leaf_count_;
+            LiteralIntType max_leaf_;
+            static constexpr LiteralIntType fanout = Fanout; 
 
 
 
-            static constexpr literal_IntType log2_fanout = [] { //This is the lg(fanout) with a base of 2 
-                literal_IntType v = fanout;
-                literal_IntType r = 0;
-                while (v > 1) {
-                    v >>= 1;
-                    ++r;
-                }
-                return r;
-            }();
+            static constexpr LiteralIntType log2_fanout = core::countr_zero(unsigned_fanout);
         };}
 
 ///////////////////////
@@ -174,9 +164,9 @@ template <
 >
 class dynamic_discrete_distribution {
     //This protects against non literal IntType types (necessary because of the boost::multiprecision::cpp_int types). indexes can't be larger than size_t anyway, so we just use size_t. We use this in the place of IntType for internal work, and cast to IntType before returning
-    using literal_IntType = typename std::conditional<std::is_trivially_destructible<IntType>::value && std::is_constructible<IntType>::value,IntType,size_t>::type;
+    using LiteralIntType = typename std::conditional<std::is_trivially_destructible<IntType>::value && std::is_constructible<IntType>::value,IntType,size_t>::type;
 
-    static constexpr typename std::make_unsigned<literal_IntType>::type unsigned_fanout = Fanout;
+    static constexpr typename std::make_unsigned<LiteralIntType>::type unsigned_fanout = Fanout;
     static_assert(Fanout>0 && boost::core::has_single_bit(unsigned_fanout),"template parameter Fanout must be a positive power of 2");
     using This = dynamic_discrete_distribution<IntType, Real, Fanout, Precision>;
 
@@ -188,9 +178,9 @@ public:
     /**
      * @brief standard library random number distributions separate state related to the parameters of a distribution and state related to the generation of random numbers by defining a member class param_type that holds the distribution parameters and related data structures. The distribution stores its parameter set in a param_type object. 
      */
-    class Param : protected detail::complete_kary_complete_tree<literal_IntType, Real, Fanout> {
-        using BaseTree = detail::complete_kary_complete_tree<literal_IntType, Real, Fanout>;
-        using PosType = typename BaseTree::position_type;
+    class Param : protected detail::complete_kary_complete_tree<LiteralIntType, Real, Fanout> {
+        using base_tree = detail::complete_kary_complete_tree<LiteralIntType, Real, Fanout>;
+        using pos_type = typename base_tree::position_type;
 
     public:
         using distribution_type = This;
@@ -217,40 +207,40 @@ public:
          */
         template< class UnaryOperation >
         Param( std::size_t count, double xmin, double xmax, UnaryOperation unary_op )
-            : Param(weightDistribution(count,xmin,xmax,unary_op)) {}
+            : Param(weight_distribution(count,xmin,xmax,unary_op)) {}
 
         /**
          * @brief constructs the distribution from the first and last iterators to a collection of weights of type `weight_type`. Each weight is indexed according to the number of elements between itself and first. 
          */
         template<class InputIt>
         Param(InputIt first, InputIt last)
-            : BaseTree()
+            : base_tree()
         {
             size_t distance = std::distance(first, last);
-            literal_IntType n = distance;
-            typename std::make_unsigned<literal_IntType>::type n_unsigned = n;
+            LiteralIntType n = distance;
+            typename std::make_unsigned<LiteralIntType>::type n_unsigned = n;
 
             //n = 2;
 
             // Round up leaves to nearest full complete k-ary tree level (power of fanout)
             if (n <= fanout){
                 max_leaf_ = fanout;
-                num_layers = 1;
+                num_layers_ = 1;
             }
             else{
-                literal_IntType k = boost::core::countr_zero(unsigned_fanout);
-                num_layers = (boost::core::bit_width(n_unsigned - 1) + k - 1) / k;
-                max_leaf_ = literal_IntType(1) << (((boost::core::bit_width(n_unsigned - 1) + k - 1) / k) * k);
+                LiteralIntType k = boost::core::countr_zero(unsigned_fanout);
+                num_layers_ = (boost::core::bit_width(n_unsigned - 1) + k - 1) / k;
+                max_leaf_ = LiteralIntType(1) << (((boost::core::bit_width(n_unsigned - 1) + k - 1) / k) * k);
             }
 
-            leaf_start_ = BaseTree::minimal_tree_shape(n).second;
-            BaseTree::resize(n);
+            leaf_start_ = base_tree::minimal_tree_shape(n).second;
+            base_tree::resize(n);
             leaf_end_ = n;
 
 
             // Copy weights to leaves, pad with zeros
             InputIt it = first;
-            for (literal_IntType i = leaf_start_; i < leaf_start_ + n; ++i) {
+            for (LiteralIntType i = leaf_start_; i < leaf_start_ + n; ++i) {
                 weightsum_of(i) = std::max(Real(*it), Real(0));
                 ++it;
             }
@@ -258,9 +248,9 @@ public:
             // Build sums bottom-up from leaves to root (excluding root)
             for (ptrdiff_t i = leaf_start_ - 1; i >= 0; --i) {
                 Real sum = 0;
-                PosType first_child = (i + 1) * fanout; // -1-index adjustment
-                for (literal_IntType c = 0; c < fanout; ++c) {
-                    PosType child = first_child + c;
+                pos_type first_child = (i + 1) * fanout; // -1-index adjustment
+                for (LiteralIntType c = 0; c < fanout; ++c) {
+                    pos_type child = first_child + c;
                     if (child >= leaf_start_+n) break;
                     sum += weightsum_of(child);
                 }
@@ -269,17 +259,17 @@ public:
 
             // Compute root separately
             Real sum = 0;
-            PosType first_child = 0 * fanout; // root's first child in array
+            pos_type first_child = 0 * fanout; // root's first child in array
             if (leaf_start_ == 0){
-                for (literal_IntType c = 0; c < leaf_end_; ++c) {
-                    PosType child = first_child + c;
+                for (LiteralIntType c = 0; c < leaf_end_; ++c) {
+                    pos_type child = first_child + c;
                     if (child >= max_leaf_) break;
                     sum += weightsum_of(child);
                 }
             }
             else{
-                for (literal_IntType c = 0; c < fanout; ++c) {
-                    PosType child = first_child + c;
+                for (LiteralIntType c = 0; c < fanout; ++c) {
+                    pos_type child = first_child + c;
                     if (child >= max_leaf_) break;
                     sum += weightsum_of(child);
                 }
@@ -295,7 +285,7 @@ public:
             Real total = total_weight();
             if (total <= Real(0)) return probs;
 
-            for (literal_IntType i = 0; i < leaf_end_; ++i) {
+            for (LiteralIntType i = 0; i < leaf_end_; ++i) {
                 probs[i] = weightsum_of(leaf_start_ + i) / total;
             }
             return probs;
@@ -316,7 +306,7 @@ public:
          * @brief updates weight of int`i`  to `new_weight`. If i is not in this parameter set, the behavior is undefined. 
          */
         void update_weight(IntType i, Real new_weight) {
-            literal_IntType i_literal = i;
+            LiteralIntType i_literal = i;
             BOOST_ASSERT(new_weight >= Real(0));
             BOOST_ASSERT(i_literal <= leaf_end_);
             BOOST_ASSERT(i_literal>=0);
@@ -327,7 +317,7 @@ public:
 
 
             while (i_literal >=fanout) {                
-                i_literal = BaseTree::parent_of(i_literal);
+                i_literal = base_tree::parent_of(i_literal);
 
                 weightsum_of(i_literal) += diff;
             }
@@ -349,7 +339,7 @@ public:
          * @brief returns the total of all of the weights in this parameter set.
          */
         Real total_weight() const noexcept {
-            if (BaseTree::size() == 0) return Real(0);
+            if (base_tree::size() == 0) return Real(0);
             return total_weight_;
         }
 
@@ -393,11 +383,11 @@ public:
          * @brief compares the weights of each element in `rhs` and `lhs` for equality.
          */
         BOOST_RANDOM_DETAIL_EQUALITY_OPERATOR(Param, lhs, rhs){
-            literal_IntType sizer = rhs.literal_size();
+            LiteralIntType sizer = rhs.literal_size();
             if (sizer != lhs.literal_size()){
                 return false;
             }
-            for (literal_IntType i=0; i<sizer; i++){
+            for (LiteralIntType i=0; i<sizer; i++){
                 if (rhs.get_weight_literal(i)!=lhs.get_weight_literal(i)){
                     return false;
                 }
@@ -408,7 +398,7 @@ public:
 //         //PERIN TODO - DELETE METHOD
 //         // Print tree for debugging (-1-indexed)
 //   void printTree(std::ostream& os = std::cout) const {
-//     IntType total_nodes = BaseTree::size();
+//     IntType total_nodes = base_tree::size();
 
 //     if (total_nodes == 0) {
 //         os << "(empty tree)\n";
@@ -428,13 +418,13 @@ public:
 //             ptrdiff_t node = q.front();
 //             q.pop();
 
-//             Real w = (node == -1) ? total_weight_ : weightsum_of(static_cast<PosType>(node));
+//             Real w = (node == -1) ? total_weight_ : weightsum_of(static_cast<pos_type>(node));
 //             os << "[" << node << "]=" << w << "  ";
 
 //             // enqueue children
-//             PosType first_child = (node + 1) * fanout; // -1-index adjustment
+//             pos_type first_child = (node + 1) * fanout; // -1-index adjustment
 //             for (IntType c = 0; c < fanout; ++c) {
-//                 PosType child = first_child + c;
+//                 pos_type child = first_child + c;
 //                 if (child >= total_nodes) break;
 //                 q.push(child);
 //             }
@@ -468,7 +458,7 @@ public:
          * @brief Writes a textual representation of the parameters to `stream`. The formatting flags and fill character of `stream` are unchanged.
          */
         BOOST_RANDOM_DETAIL_OSTREAM_OPERATOR(stream, Param, dist){
-            std::vector<Real> leaves(dist.BaseTree::data().begin()+dist.leaf_start_, dist.BaseTree::data().begin()+dist.leaf_start_+dist.leaf_end_ );
+            std::vector<Real> leaves(dist.base_tree::data().begin()+dist.leaf_start_, dist.base_tree::data().begin()+dist.leaf_start_+dist.leaf_end_ );
             detail::print_vector(stream, leaves);
 
             return stream;
@@ -476,49 +466,50 @@ public:
 
     private:
         //size for internal use, involving fewer casts.
-        literal_IntType literal_size()const{
+        LiteralIntType literal_size()const{
             return leaf_end_;
         }
 
         //get_weight for internal use
-        Real get_weight_literal(literal_IntType i) const {
+        Real get_weight_literal(LiteralIntType i) const {
             BOOST_ASSERT(i <= leaf_end_+leaf_start_);
             BOOST_ASSERT(i>=0);
             return weightsum_of(leaf_start_ + i);
         }
 
-        Real& weightsum_of(PosType p) { return BaseTree::value_of(p); }
-        const Real& weightsum_of(PosType p) const { return BaseTree::value_of(p); }
+        Real& weightsum_of(pos_type p) { return base_tree::value_of(p); }
+        const Real& weightsum_of(pos_type p) const { return base_tree::value_of(p); }
         
         // Expand from current leaf_count_ to new_leaf_count (must be larger), structurally, without recomputing
         // new expand: argument is NEW_LEAF_COUNT (number of leaves you want after expansion)
-        void expand(literal_IntType new_leaf_count) {
+        void expand(LiteralIntType new_leaf_count) {
             if (new_leaf_count <= leaf_end_) return; // nothing to do
-            auto &data_ = BaseTree::data();
-            literal_IntType new_leaf_start = leaf_start_;
+            auto &data_ = base_tree::data();
             if (new_leaf_count > max_leaf_) {
                 max_leaf_ *= fanout; 
                 // old shape
-                auto [old_total_nodes, old_leaf_start] = BaseTree::minimal_tree_shape(leaf_end_); 
+                std::pair<LiteralIntType, LiteralIntType> oldShape = base_tree::minimal_tree_shape(leaf_end_); 
+                LiteralIntType old_total_nodes = oldShape.first;
 
                 // new shape
-                auto [new_total_nodes, new_leaf_start] = BaseTree::minimal_tree_shape(new_leaf_count);
-                leaf_start_ = new_leaf_start;
+                 std::pair<LiteralIntType, LiteralIntType> newShape = base_tree::minimal_tree_shape(new_leaf_count);
+                 LiteralIntType new_total_nodes = newShape.first;
+                 leaf_start_ = newShape.second;
 
-                std::vector<literal_IntType> old_starts;
-                std::vector<literal_IntType> old_levels;
+                std::vector<LiteralIntType> old_starts;
+                std::vector<LiteralIntType> old_levels;
 
-                std::vector<literal_IntType> new_starts;
-                std::vector<literal_IntType> new_levels;
+                std::vector<LiteralIntType> new_starts;
+                std::vector<LiteralIntType> new_levels;
 
-                literal_IntType position = 0;
-                literal_IntType sum = 0;
+                LiteralIntType position = 0;
+                LiteralIntType sum = 0;
 
                 // Creating the level lengths and level starts for the old size
                 while (true) {
-                    position = BaseTree::first_child_of(position);
+                    position = base_tree::first_child_of(position);
                     old_starts.push_back(sum);
-                    literal_IntType level = position - sum;
+                    LiteralIntType level = position - sum;
                     sum += level;
                     old_levels.push_back(level);
                     if (position >= old_total_nodes) break;
@@ -528,9 +519,9 @@ public:
                 position = 0;
                 sum = 0;
                 while (true) {
-                    position = BaseTree::first_child_of(position);
+                    position = base_tree::first_child_of(position);
                     new_starts.push_back(sum);
-                    literal_IntType level = position - sum;
+                    LiteralIntType level = position - sum;
                     sum += level;
                     new_levels.push_back(level);
                     if (position >= new_total_nodes) break;
@@ -542,11 +533,11 @@ public:
                 // copy each old level block into the next-deeper level of the new layout.
                 // old level i -> new level (i+1). That packs the old block contiguously at the start
                 // of the larger new level (the remainder stays zero).
-                for (literal_IntType i = 0; i < old_levels.size(); ++i) {
-                    literal_IntType old_start = old_starts[i];
-                    literal_IntType old_sz    = old_levels[i];
-                    literal_IntType new_level_index = i + 1; // destination level index
-                    literal_IntType new_start = new_starts[new_level_index];
+                for (LiteralIntType i = 0; i < old_levels.size(); ++i) {
+                    LiteralIntType old_start = old_starts[i];
+                    LiteralIntType old_sz    = old_levels[i];
+                    LiteralIntType new_level_index = i + 1; // destination level index
+                    LiteralIntType new_start = new_starts[new_level_index];
                     
 
                     std::copy_n(data_.begin() + old_start, old_sz, new_data.begin() + new_start);
@@ -555,38 +546,38 @@ public:
                 // recompute only the new top internal layer (level 0) from its children (level 1)
                 // top-level nodes occupy global indices new_starts[0] .. new_starts[0]+new_levels[0]-1
                 // their first child indices can be computed with first_child_of(parent_index)
-                literal_IntType top_count = new_levels[0];
-                literal_IntType top_start = new_starts[0];   // usually 0
-                for (literal_IntType j = 0; j < top_count; ++j) {
-                    literal_IntType parent_idx = top_start + j;
+                LiteralIntType top_count = new_levels[0];
+                LiteralIntType top_start = new_starts[0];   // usually 0
+                for (LiteralIntType j = 0; j < top_count; ++j) {
+                    LiteralIntType parent_idx = top_start + j;
                     // first child in global indexing:
-                    literal_IntType first_child = BaseTree::first_child_of(parent_idx);
+                    LiteralIntType first_child = base_tree::first_child_of(parent_idx);
                     Real sum = Real(0);
-                    for (literal_IntType c = 0; c < fanout; ++c) {
-                        literal_IntType child = first_child + c;
+                    for (LiteralIntType c = 0; c < fanout; ++c) {
+                        LiteralIntType child = first_child + c;
                         if (child >= new_total_nodes) break;
                         sum += new_data[child];
                     }
                     new_data[parent_idx] = sum;
                 }
                 // commit!
-                num_layers++;
+                num_layers_++;
                 data_.swap(new_data);
 
             }
-            else if (new_leaf_count+leaf_start_ >= BaseTree::size()) {
-                BaseTree::resize(std::min(new_leaf_count*2,leaf_start_+max_leaf_));
+            else if (new_leaf_count+leaf_start_ >= base_tree::size()) {
+                base_tree::resize(std::min(new_leaf_count*2,leaf_start_+max_leaf_));
             }
         }
 
-        literal_IntType max_leaf_;
-        literal_IntType leaf_end_;   // number of leaves requested by user
-        typename std::make_signed<literal_IntType>::type leaf_start_; // index of first leaf in data_
-        literal_IntType num_layers;
+        LiteralIntType max_leaf_;
+        LiteralIntType leaf_end_;   // number of leaves requested by user
+        typename std::make_signed<LiteralIntType>::type leaf_start_; // index of first leaf in data_
+        LiteralIntType num_layers_;
         Real total_weight_ = 0;
 
         template< class UnaryOperation >
-        static std::vector<Real> weightDistribution(std::size_t count, double xmin, double xmax,UnaryOperation unary_op ){
+        static std::vector<Real> weight_distribution(std::size_t count, double xmin, double xmax,UnaryOperation unary_op ){
             std::vector<Real> distro;
             if (count<=0){
                 distro.push_back(1);
@@ -624,7 +615,7 @@ public:
      * @brief constructs a distribution with the parameters in p. 
      */
     explicit dynamic_discrete_distribution(const Param& p){
-        myParam = p;
+        param_ = p;
     }
 
     /**
@@ -638,7 +629,7 @@ public:
      */
     template< class UnaryOperation >
     dynamic_discrete_distribution( std::size_t count, double xmin, double xmax, UnaryOperation unary_op ){
-        myParam = Param(count,xmin,xmax,unary_op);
+        param_ = Param(count,xmin,xmax,unary_op);
     }
 
     /**
@@ -646,7 +637,7 @@ public:
      */
     template<class InputIt>
     dynamic_discrete_distribution(InputIt first, InputIt last){
-        myParam = Param(first,last);
+        param_ = Param(first,last);
     }
 
     /**
@@ -665,16 +656,16 @@ public:
         if (total <= Real(0)) return 0;
         Real target = boost::random::generate_canonical<Real, Precision, URNG>(g) * total;
         if (target == Real(0)) return 0;
-        typename Param::PosType first_child = 0;
+        typename Param::pos_type first_child = 0;
 
         // Start at the top internal node (index 0)
-        typename Param::PosType node = 0;
+        typename Param::pos_type node = 0;
 
-        for(literal_IntType i=0; i<param.num_layers-1;i++){
+        for(LiteralIntType i=0; i<param.num_layers_-1;i++){
             Real cumulative = 0;
             bool chosen = false;
-            for (literal_IntType c = 0; c < fanout; ++c) {
-                typename Param::PosType child = first_child + c;
+            for (LiteralIntType c = 0; c < fanout; ++c) {
+                typename Param::pos_type child = first_child + c;
                 Real w = param.weightsum_of(child);
                 if (target < cumulative + w) {
                     node = child;
@@ -691,7 +682,7 @@ public:
                 target +=param.weightsum_of(first_child);
             }
 
-            first_child = param.BaseTree::first_child_of(node); // first child in array
+            first_child = param.base_tree::first_child_of(node); // first child in array
             
         }
         // last iteration shaved off for extra safety checks due to the possibility of floating point errors
@@ -700,8 +691,8 @@ public:
         }
         Real cumulative = 0;
         bool chosen = false;
-        for (literal_IntType c = 0; (c < fanout)&&(c+first_child<param.leaf_end_+param.leaf_start_); ++c) {
-            typename Param::PosType child = first_child + c;
+        for (LiteralIntType c = 0; (c < fanout)&&(c+first_child<param.leaf_end_+param.leaf_start_); ++c) {
+            typename Param::pos_type child = first_child + c;
             if (child >= param.leaf_end_+param.leaf_start_) break; 
             Real w = param.weightsum_of(child);
             if (target < cumulative + w) {
@@ -731,28 +722,28 @@ public:
      */
     template<class URNG>
     result_type operator()(URNG& g) const {
-        return this->operator()(g,myParam); 
+        return this->operator()(g,param_); 
     }
 
     /**
      * @brief returns a vector of probabilities of each integer that could be generated by this distribution using its associated parameter set. 
      */
     std::vector<Real> probabilities() const {
-        return myParam.probabilities();
+        return param_.probabilities();
     }
 
     /**
      * @brief gets the distribution's parameter set
      */
     Param param() const {
-        return myParam;
+        return param_;
     }
 
     /**
      * @brief sets the distribution's parameter set to `p`
      */
     void param(const Param& p) { 
-        myParam = p; 
+        param_ = p; 
     }
 
     /**
@@ -763,67 +754,67 @@ public:
     /**
      * @brief returns the maximum integer that could be generated by the operator called on the distribution's parameter set assuming that it is not empty. 
      */
-    result_type max() const { return myParam.max(); }
+    result_type max() const { return param_.max(); }
 
     /**
      * @brief updates weight of int`i` in the distribution's parameter set to `new_weight`. If i is not in the distribution's parameter set, the behavior is undefined. 
      */
     void update_weight(IntType i, Real new_weight) {
-        myParam.update_weight(i, new_weight);
+        param_.update_weight(i, new_weight);
     }
 
     /**
      * @brief gets the weight of int `i` in the distribution's parameter set. If i is not in the parameter set, the behavior is undefined. 
      */
     Real get_weight(IntType i) const {
-        return myParam.get_weight_literal(i);
+        return param_.get_weight_literal(i);
     }
 
     /**
      * @brief returns the number of weights in the distribution's parameter set. 
      */
-    IntType size() const { return myParam.size(); }
+    IntType size() const { return param_.size(); }
 
     /**
      * @brief returns the total of all of the weights in the distribution's parameter set.
      */
     Real total_weight() const noexcept {
-        return myParam.total_weight();
+        return param_.total_weight();
     }
 
     /**
      * @brief adds weights.size() elements to the end of the distribution's parameter set with weights given by `weights` vector. 
      */
     void push_back(const std::vector<Real>& weights){
-        myParam.push_back(weights);
+        param_.push_back(weights);
     }
 
     /**
      * @brief adds an element to the end of distribution's parameter set with weight `weight`.
      */
     void push_back(Real weight) {
-        myParam.push_back(weight);
+        param_.push_back(weight);
     }
 
     /**
      * @brief removes the `count` highest integers from the distribution's parameter set. If the distribution's parameter set is empty, this function's behavior is undefined. NOTE: in this implementation, this does not deallocate memory or decrease the depth of the underlying tree based data structure. For the purposes of asymptotic analysis, consider "N" to be the largest number of elements ever held in the distribution's parameter set. 
      */
     void pop_back(IntType count) {
-        myParam.pop_back(count);
+        param_.pop_back(count);
     }
 
     /**
      * @brief removes the highest integer from the distribution's parameter set. If the distribution's parameter set is empty, this function's behavior is undefined. NOTE: in this implementation, this does not deallocate memory or decrease the depth of the underlying tree based data structure. For the purposes of asymptotic analysis, consider "N" to be the largest number of elements ever held in the distribution's parameter set. 
      */
     void pop_back() {
-        myParam.pop_back();
+        param_.pop_back();
     }
 
     /**
      * @brief compares the parameter sets of `rhs` and `lhs` for equality
      */
     BOOST_RANDOM_DETAIL_EQUALITY_OPERATOR(This, lhs, rhs){
-        return (rhs.myParam == lhs.myParam);
+        return (rhs.param_ == lhs.param_);
     }
     
     /**
@@ -836,19 +827,19 @@ public:
      * @brief Restores the distribution parameters with data read from `stream`. The formatting flags of `stream` are unchanged. The data must have been written using a stream with the same locale, `CharT` and `Traits` template parameters, otherwise the behavior is undefined. If bad input is encountered, stream.setstate(std::ios::failbit) is called, which may throw std::ios_base::failure. `dist` is unchanged in that case.
      */
     BOOST_RANDOM_DETAIL_ISTREAM_OPERATOR(stream, This, dist){
-        return (stream>>dist.myParam);
+        return (stream>>dist.param_);
     }
 
     /**
      * @brief Writes a textual representation of the distribution parameters to `stream`. The formatting flags and fill character of `stream` are unchanged.
      */
     BOOST_RANDOM_DETAIL_OSTREAM_OPERATOR(stream, This, dist){        
-        return (stream<<dist.myParam);
+        return (stream<<dist.param_);
     }
 
 private:
-    Param myParam;
-    static constexpr literal_IntType fanout = Fanout; 
+    Param param_;
+    static constexpr LiteralIntType fanout = Fanout; 
 
 };
 
